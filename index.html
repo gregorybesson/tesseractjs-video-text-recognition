@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>KrugID recognition</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
+</head>
+<body>
+  <div id="root">
+    <div style="position: relative; width:100%; text-align:center">
+      <video id="video" crossorigin="anonymous" autoplay playsinline></video>
+      <div id="bracketLeft" style="position:absolute; font-size:100px; top:40%; left:37%; display:none;">[</div>
+      <div id="bracketRight" style="position:absolute; font-size:100px; top:40%; right:33%; display:none;">]</div>
+      <div id="wait" style="position:absolute; font-size:60px; top:42%; left:37%; display:none;">]</div>
+    </div>
+    <div id="sep"></div>
+    <div id="messages"></div>
+    <h1 id="found"></h1>
+    <!-- <canvas id="canvas" width="320" height="100"></canvas> -->
+  </div>
+  <script>
+    const bracketLeft = document.getElementById('bracketLeft');
+    const bracketRight = document.getElementById('bracketRight');
+    const { createWorker, createScheduler } = Tesseract;
+    const scheduler = createScheduler();
+    const video = document.getElementById('video');
+    const wait = document.getElementById('wait');
+    const messages = document.getElementById('messages');
+    const found = document.getElementById('found');
+    // const canvas = document.getElementById("canvas")
+    // const ctx = canvas.getContext("2d");
+    // requestAnimationFrame(draw);
+    // function draw() {
+    //   canvas.width = 400;
+    //   canvas.height = 150;
+    //   ctx.drawImage(video, video.videoWidth/2 - 100, video.videoHeight/2 - 100, 200, 75, 0, 0, canvas.width, canvas.height);
+    //   imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    //   data = imgData.data;
+    //   for (let i = 0; i < data.length; i += 4) {
+    //       ave = (data[i + 0] + data[i + 1] + data[i + 2]) / 3;
+    //       data[i + 0] =
+    //           data[i + 1] =
+    //           data[i + 2] = (ave > 128) ? 0 : 255;
+    //       data[i + 3] = 255;
+    //   }
+    //   ctx.putImageData(imgData, 0, 0);
+    //   requestAnimationFrame(draw);
+    // }
+
+    let timerId = null;
+
+    const addMessage = (m, bold) => {
+      let msg = `<p>${m}</p>`;
+      if (bold) {
+        msg = `<p class="bold">${m}</p>`;
+      }
+      messages.innerHTML += msg;
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    const doOCR = async () => {
+      const c = document.createElement('canvas');
+      c.width = 400;
+      c.height = 150;
+      const cctx = c.getContext('2d');
+      cctx.drawImage(video, video.videoWidth/2 - 100, video.videoHeight/2 - 100, 200, 75, 0, 0, c.width, c.height);
+      let imgData = cctx.getImageData(0, 0, c.width, c.height);
+      let data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+          ave = (data[i + 0] + data[i + 1] + data[i + 2]) / 3;
+          data[i + 0] =
+              data[i + 1] =
+              data[i + 2] = (ave > 128) ? 0 : 255;
+          data[i + 3] = 255;
+      }
+      cctx.putImageData(imgData, 0, 0);
+
+      const start = new Date();
+      const { data: { text } } = await scheduler.addJob('recognize', c);
+      const end = new Date()
+
+      var rest = 'NOT FOUND'
+      var krugId = ''
+      if (
+          text.trim().substring(0, 5) === ".1 D." ||
+          text.trim().substring(0, 5) === "I21D." ||
+          text.trim().substring(0, 5) === "OO D." ||
+          text.trim().substring(0, 5) === ". 1D." ||
+          text.trim().substring(0, 4) === "I.D." ||
+          text.trim().substring(0, 4) === "5I0." ||
+          text.trim().substring(0, 4) === "I D." ||
+          text.trim().substring(0, 4) === ". D." ||
+          text.trim().substring(0, 4) === "1.0." ||
+          text.trim().substring(0, 4) === ".1D." ||
+          text.trim().substring(0, 3) === "ID." ||
+          text.trim().substring(0, 3) === "10." ||
+          text.trim().substring(0, 3) === "1D." ||
+          text.trim().substring(0, 3) === ".0." ||
+          text.trim().substring(0, 3) === ".D." ||
+          text.trim().substring(0, 2) === "D." ||
+          text.trim().substring(0, 2) === "0." ||
+          text.trim().substring(0, 1) === "D" ||
+          text.trim().substring(0, 1) === "1" ||
+          text.trim().substring(0, 1) === "." ||
+          text.length === 6
+      ) {
+        rest = 'FOUND'
+        krugId = text.trim().replace(/ /g, '').substring(text.length - 7)
+        if (!isNaN(krugId) && krugId.length === 6) {
+          found.innerHTML = `[${start.getMinutes()}:${start.getSeconds()} -> ${krugId} !!!`
+        }
+      }
+
+      addMessage(`[${start.getMinutes()}:${start.getSeconds()} - ${text} : ${text.trim().substring(0, 2)} - ${rest} - ${krugId}`);// - ${text.replace(/\./g, '').trim().substring(text.length - 6)} - ${fo} => ${krugId}`);
+    };
+
+    (async () => {
+      addMessage('Initializing Tesseract.js');
+      wait.innerHTML = 'Initializing AI library...';
+      wait.style.display = 'block';
+      for (let i = 0; i < 4; i++) {
+        const worker = createWorker();
+        await worker.load();
+        await worker.loadLanguage('fra');
+        await worker.initialize('fra');
+        await worker.setParameters({
+          tessedit_char_whitelist: 'ID1234567890.',
+          tessedit_ocr_engine_mode: '0',
+          tessedit_pageseg_mode: '11'
+        });
+        scheduler.addWorker(worker);
+      }
+      addMessage('Initialized Tesseract.js');
+      video.addEventListener('play', () => {
+        timerId = setInterval(doOCR, 1000);
+      });
+      video.addEventListener('pause', () => {
+        clearInterval(timerId);
+      });
+      addMessage('Now you can play the video. :)');
+      wait.style.display = 'none';
+      bracketLeft.style.display = 'block';
+      bracketRight.style.display = 'block';
+      video.controls = true;
+
+    })();
+    var handleSuccess = function (stream) {
+      video.srcObject = stream;
+    };
+    var front = false;
+        var constraints = {
+          audio: false,
+          video: {
+            width: 1280,
+            // height: 760,
+            facingMode: front ? "user" : "environment",
+            aspectRatio: 9/16
+          },
+        };
+    navigator.mediaDevices.getUserMedia(constraints).then(handleSuccess);
+  </script>
+</body>
+</html>
